@@ -212,6 +212,7 @@ class MySpaceAPI {
 	static function curl_put($url, $data, $verbose = 0) {
 		$curl = MySpaceAPI::curl_common_init($url, $verbose);
 		curl_setopt($curl, CURLOPT_POST, 1);
+		curl_setopt($curl, CURLOPT_HTTPHEADER, array('Expect:')); // turn off Expect: 100-continue
 		curl_setopt($curl, CURLOPT_CUSTOMREQUEST, 'PUT');
 		curl_setopt($curl, CURLOPT_POSTFIELDS, $data);
 		return MySpaceAPI::curl_common_execute($curl);
@@ -286,7 +287,7 @@ class MySpaceAPI {
 		$this->put($path, $data_array);
 	}
 
-	// Retrieves the data stored by the method above.
+	// Retrieves the data stored by the method above. Returns NULL if there was no data.
 	//
 	public function get_appdata($uid) {
 		$path = "v1/users/{$uid}/appdata.JSON";
@@ -294,6 +295,7 @@ class MySpaceAPI {
 
 		// Rearrange the array such that it is a hash or keys and values.
 		$nicer_hash = array();
+		if (!isset($array['keyvaluecollection'])) return NULL;
 		foreach ($array['keyvaluecollection'] as $hash) {
 			$nicer_hash[$hash['key']] = $hash['value'];
 		}
@@ -327,6 +329,8 @@ class MySpaceAPI {
 	//	[webUri] => http://www.myspace.com/85628343
 	// )
 	//
+	// Sometimes users delete their accounts. In that case "name" will be null.
+	//
 	public function get_user($uid) {
 		$path = "v1/users/{$uid}.JSON";
 		$v = json_decode($this->get($path), TRUE);
@@ -354,6 +358,8 @@ class MySpaceAPI {
 	// time if the user has thousands of friends. I've had tasks on my server stalling for over
 	// a minute, very likely because of such accounts.
 	//
+	// Can return an empty array without even Tom in it if this is a disabled user account.
+	//
 	public function get_all_friends($uid, $abort_page=50) {
 
 		// Accumulate friends to an array of hashes one page at a time.
@@ -367,7 +373,12 @@ class MySpaceAPI {
 			$path = "v1/users/{$uid}/friends.JSON";
 			$get_args = array('page_size' => $page_size, 'page' => $current_page);
 
-			$array = json_decode($this->get($path, $get_args), TRUE);
+			$response_content = $this->get($path, $get_args);
+			$array = json_decode($response_content, TRUE);
+
+			// Can have 0 friends if this is a disabled user account.
+			if ($array['count'] == 0) return array();
+
 			if (!isset($array['Friends'])) {
 				throw new Exception("Couldn't find key 'Friends': $response_content");
 			}
